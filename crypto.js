@@ -16,7 +16,7 @@ class CryptoModuleBrowser {
             "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse",
             "access", "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire", "across", "act",
             "action", "actor", "actress", "actual", "adapt", "add", "addict", "address", "adjust", "admit",
-            "adult", "advance", "advice", "aerobic", "affair", "afford", "afraid", "africa", "africa", "after",
+            "adult", "advance", "advice", "aerobic", "affair", "afford", "afraid", "africa", "after",
             "again", "age", "agent", "agree", "ahead", "aim", "air", "airport", "aisle", "alarm",
             "album", "alcohol", "alert", "alien", "all", "alley", "allow", "almost", "alone", "alpha",
             "already", "also", "alter", "always", "amateur", "amazing", "among", "amount", "amused", "analyst",
@@ -297,77 +297,109 @@ class CryptoModuleBrowser {
     }
 
     // Приватный ключ → мнемоника (без изменений)
-    privateKeyToMnemonic(privateKeyHex) {
-        try {
-            const privateKey = this._hexToBytes(privateKeyHex);
-            const entropy = privateKey.slice(0, 32);
-            
-            const entropyHex = this._bytesToHex(entropy);
-            const hashHex = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(entropyHex)).toString(CryptoJS.enc.Hex);
-            const hashBytes = this._hexToBytes(hashHex);
-            const checksum = hashBytes[0];
-            
-            let bits = '';
-            for (let i = 0; i < entropy.length; i++) {
-                bits += entropy[i].toString(2).padStart(8, '0');
-            }
-            bits += checksum.toString(2).padStart(8, '0');
-            
-            const words = [];
-            for (let i = 0; i < 24; i++) {
-                const index = parseInt(bits.substr(i * 11, 11), 2);
-                words.push(this.bip39Wordlist[index]);
-            }
-            
-            return words.join(' ');
-        } catch (error) {
-            console.error('Mnemonic generation error:', error);
-            throw error;
+    privateKeyToMnemonic(privateKeyHex, wordCount = 12) {
+    try {
+        const validCounts = [6, 12, 15, 18, 21, 24, 48];
+        if (!validCounts.includes(wordCount)) {
+            throw new Error('n 6, 12, 15, 18, 21, 24, or 48');
         }
+
+        const privateKey = this._hexToBytes(privateKeyHex);
+        if (privateKey.length !== 32) {
+            throw new Error('n32by');
+        }
+
+        const entropyBits = (wordCount / 3) * 32;
+        const entropyBytes = entropyBits / 8;
+
+        let entropyHex;
+        if (wordCount === 48) {
+            const hash1 = this._sha256(privateKeyHex);
+            const hash2 = this._sha256(privateKeyHex + 'extra');
+            entropyHex = hash1 + hash2;
+        } else {
+            const hashHex = this._sha256(privateKeyHex);
+            entropyHex = hashHex.substring(0, entropyBytes * 2);
+        }
+
+        const entropy = this._hexToBytes(entropyHex);
+
+        let bits = '';
+        for (let i = 0; i < entropy.length; i++) {
+            bits += entropy[i].toString(2).padStart(8, '0');
+        }
+
+        const hashFull = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(entropyHex)).toString(CryptoJS.enc.Hex);
+        const hashBytes = this._hexToBytes(hashFull);
+        const checksumBitLength = entropyBits / 32;
+        const checksum = hashBytes[0] >> (8 - checksumBitLength);
+        bits += checksum.toString(2).padStart(checksumBitLength, '0');
+
+        const words = [];
+        for (let i = 0; i < wordCount; i++) {
+            const index = parseInt(bits.substr(i * 11, 11), 2);
+            words.push(this.bip39Wordlist[index]);
+        }
+
+        return words.join(' ');
+
+    } catch (error) {
+        console.error('Mnemonic generation error:', error);
+        throw error;
     }
+}
 
     // Мнемоника → приватный ключ (без изменений)
-    mnemonicToPrivateKey(mnemonic) {
-        try {
-            const words = mnemonic.split(' ');
-            if (words.length !== 24) {
-                throw new Error('Mnemonic must have 24 words');
-            }
-            
-            let bits = '';
-            for (const word of words) {
-                const index = this.bip39Wordlist.indexOf(word);
-                if (index === -1) throw new Error(`Invalid word: ${word}`);
-                bits += index.toString(2).padStart(11, '0');
-            }
-            
-            if (bits.length !== 264) {
-                throw new Error('Invalid mnemonic length');
-            }
-            
-            const entropyBits = bits.substr(0, 256);
-            const checksumBits = bits.substr(256, 8);
-            
-            const entropy = [];
-            for (let i = 0; i < entropyBits.length; i += 8) {
-                entropy.push(parseInt(entropyBits.substr(i, 8), 2));
-            }
-            
-            const entropyHex = this._bytesToHex(entropy);
-            const hashHex = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(entropyHex)).toString(CryptoJS.enc.Hex);
-            const hashBytes = this._hexToBytes(hashHex);
-            const expectedChecksum = hashBytes[0].toString(2).padStart(8, '0');
-            
-            if (checksumBits !== expectedChecksum) {
-                throw new Error('Invalid checksum');
-            }
-            
-            return this._bytesToHex(entropy);
-        } catch (error) {
-            console.error('Mnemonic to key error:', error);
-            throw error;
+mnemonicToPrivateKey(mnemonic) {
+    try {
+        const words = mnemonic.split(' ');
+        const wordCount = words.length;
+
+        const validCounts = [6, 12, 15, 18, 21, 24, 48];
+        if (!validCounts.includes(wordCount)) {
+            throw new Error('n 6, 12, 15, 18, 21, 24, or 48');
         }
+
+        const entropyBits = (wordCount / 3) * 32;
+        const checksumBitLength = entropyBits / 32;
+        const totalBits = entropyBits + checksumBitLength;
+
+        let bits = '';
+        for (const word of words) {
+            const index = this.bip39Wordlist.indexOf(word);
+            if (index === -1) throw new Error(`Invalid word: ${word}`);
+            bits += index.toString(2).padStart(11, '0');
+        }
+
+        if (bits.length !== totalBits) {
+            throw new Error('Invalid mnemonic length');
+        }
+
+        const entropyBitsStr = bits.substr(0, entropyBits);
+        const checksumBitsStr = bits.substr(entropyBits);
+
+        const entropy = [];
+        for (let i = 0; i < entropyBitsStr.length; i += 8) {
+            entropy.push(parseInt(entropyBitsStr.substr(i, 8), 2));
+        }
+
+        const entropyHex = this._bytesToHex(entropy);
+        const hashHex = CryptoJS.SHA256(CryptoJS.enc.Hex.parse(entropyHex)).toString(CryptoJS.enc.Hex);
+        const hashBytes = this._hexToBytes(hashHex);
+        const expectedChecksum = hashBytes[0] >> (8 - checksumBitLength);
+        const actualChecksum = parseInt(checksumBitsStr, 2);
+
+        if (expectedChecksum !== actualChecksum) {
+            throw new Error('Invalid checksum');
+        }
+
+        return this._sha256(entropyHex);
+
+    } catch (error) {
+        console.error('Mnemonic to key error:', error);
+        throw error;
     }
+}
 
     // Base58 кодирование (без изменений)
     toBase58(hex) {
