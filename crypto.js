@@ -297,7 +297,7 @@ class CryptoModuleBrowser {
     }
 
     // Приватный ключ → мнемоника (без изменений)
-    privateKeyToMnemonic(privateKeyHex, wordCount = 12) {
+privateKeyToMnemonic(privateKeyHex, wordCount = 12) {
     try {
         const validCounts = [6, 12, 15, 18, 21, 24, 48];
         if (!validCounts.includes(wordCount)) {
@@ -313,7 +313,9 @@ class CryptoModuleBrowser {
         const entropyBytes = entropyBits / 8;
 
         let entropyHex;
-        if (wordCount === 48) {
+        if (wordCount === 24) {
+            entropyHex = privateKeyHex;
+        } else if (wordCount === 48) {
             const hash1 = this._sha256(privateKeyHex);
             const hash2 = this._sha256(privateKeyHex + 'extra');
             entropyHex = hash1 + hash2;
@@ -391,6 +393,10 @@ mnemonicToPrivateKey(mnemonic) {
 
         if (expectedChecksum !== actualChecksum) {
             throw new Error('Invalid checksum');
+        }
+
+        if (wordCount === 24) {
+            return this._bytesToHex(entropy);
         }
 
         return this._sha256(entropyHex);
